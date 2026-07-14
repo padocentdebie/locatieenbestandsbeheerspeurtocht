@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>📍 Objecten & Locaties + RDW</title>
+  <title>📍 Objecten & Locaties + RDW + Export</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -182,6 +182,13 @@
       flex-wrap: wrap;
     }
     .manual-coords .row > * { flex: 1; min-width: 100px; }
+    .header-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
     @media (max-width: 480px) {
       .btn-group .btn { flex: 1 1 100%; }
       .item { flex-direction: column; align-items: stretch; }
@@ -191,7 +198,7 @@
 </head>
 <body>
 
-<h1>📍 Objecten & Locaties + RDW</h1>
+<h1>📍 Objecten & Locaties + RDW + Export</h1>
 
 <div class="card">
   <div class="form-group">
@@ -227,9 +234,12 @@
 </div>
 
 <div class="card">
-  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+  <div class="header-actions">
     <h2 style="font-size: 1.3rem; margin: 0;">Opgeslagen objecten</h2>
-    <button class="btn btn-danger" id="resetAllBtn" style="padding: 8px 16px;">🗑️ Alles resetten</button>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+      <button class="btn btn-secondary" id="exportBtn">📊 Exporteer naar Excel</button>
+      <button class="btn btn-danger" id="resetAllBtn" style="padding: 8px 16px;">🗑️ Alles resetten</button>
+    </div>
   </div>
   <div id="itemList" class="item-list">
     <div id="loading">Laden...</div>
@@ -265,10 +275,14 @@
   const statusDiv = document.getElementById('status');
   const itemListDiv = document.getElementById('itemList');
   const resetAllBtn = document.getElementById('resetAllBtn');
+  const exportBtn = document.getElementById('exportBtn');
   const manualCoordsDiv = document.getElementById('manualCoords');
   const manualLat = document.getElementById('manualLat');
   const manualLng = document.getElementById('manualLng');
   const manualSaveBtn = document.getElementById('manualSaveBtn');
+
+  // --------------------- CACHE VOOR DATA ---------------------
+  let cachedData = {}; // wordt gevuld door renderItems
 
   // --------------------- HELPERS ---------------------
   function setStatus(msg, type = 'info') {
@@ -300,13 +314,12 @@
       const data = await response.json();
       if (!data || data.length === 0) return null;
       const voertuig = data[0];
-      // Selecteer relevante velden
       return {
+        kenteken: voertuig.kenteken || plate,
         merk: voertuig.merk || 'Onbekend',
         handelsbenaming: voertuig.handelsbenaming || '',
         eersteKleur: voertuig.eerste_kleur || 'Onbekend',
-        vervaldatumAPK: voertuig.vervaldatum_apk || '',
-        kenteken: voertuig.kenteken || plate
+        vervaldatumAPK: voertuig.vervaldatum_apk || ''
       };
     } catch (error) {
       console.error('RDW-fout:', error);
@@ -317,33 +330,22 @@
   // --------------------- COÖRDINATEN OPHALEN ---------------------
   function getCoordinates() {
     return new Promise((resolve, reject) => {
-      // Eerst kijken of we GPS kunnen gebruiken
       if (navigator.geolocation && isSecureOrigin()) {
         navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-          },
+          (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
           (err) => {
-            // GPS faalt, probeer handmatige invoer
             const lat = parseFloat(manualLat.value);
             const lng = parseFloat(manualLng.value);
-            if (!isNaN(lat) && !isNaN(lng)) {
-              resolve({ lat, lng });
-            } else {
-              reject(new Error('GPS niet beschikbaar en geen handmatige coördinaten ingevuld.'));
-            }
+            if (!isNaN(lat) && !isNaN(lng)) resolve({ lat, lng });
+            else reject(new Error('GPS niet beschikbaar en geen handmatige coördinaten.'));
           },
           { enableHighAccuracy: true, timeout: 10000 }
         );
       } else {
-        // Geen GPS, gebruik handmatige invoer
         const lat = parseFloat(manualLat.value);
         const lng = parseFloat(manualLng.value);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          resolve({ lat, lng });
-        } else {
-          reject(new Error('Geolocatie niet ondersteund of geen handmatige coördinaten.'));
-        }
+        if (!isNaN(lat) && !isNaN(lng)) resolve({ lat, lng });
+        else reject(new Error('Geolocatie niet ondersteund of geen handmatige coördinaten.'));
       }
     });
   }
@@ -359,11 +361,7 @@
         longitude: lng,
         timestamp: Date.now()
       };
-
-      if (rdwData) {
-        data.rdwData = rdwData;
-      }
-
+      if (rdwData) data.rdwData = rdwData;
       if (photoFile) {
         const storagePath = `locations/${key}/photo.jpg`;
         const storageRefObj = storageRef(storage, storagePath);
@@ -372,7 +370,6 @@
         data.photoURL = downloadURL;
         data.storagePath = storagePath;
       }
-
       await set(newRef, data);
       setStatus(`✅ Object "${name}" opgeslagen op ${lat.toFixed(6)}, ${lng.toFixed(6)}`, 'success');
       objectNameInput.value = '';
@@ -389,7 +386,6 @@
   saveWithoutRdwBtn.addEventListener('click', async () => {
     const name = cleanName(objectNameInput.value);
     if (!name) { setStatus('Voer een naam in.', 'error'); return; }
-
     try {
       const coords = await getCoordinates();
       await saveObject({ name, lat: coords.lat, lng: coords.lng });
@@ -403,13 +399,10 @@
   saveWithRdwBtn.addEventListener('click', async () => {
     const name = cleanName(objectNameInput.value);
     if (!name) { setStatus('Voer een naam in.', 'error'); return; }
-
     const plate = cleanPlate(licensePlateInput.value);
     if (!plate) { setStatus('Voer een geldig kenteken in.', 'error'); return; }
-
     setStatus('🔍 RDW-gegevens ophalen...', 'info');
     saveWithRdwBtn.disabled = true;
-
     try {
       const rdwData = await fetchRDW(plate);
       if (!rdwData) {
@@ -417,7 +410,6 @@
         saveWithRdwBtn.disabled = false;
         return;
       }
-
       const coords = await getCoordinates();
       await saveObject({ name, lat: coords.lat, lng: coords.lng, rdwData });
     } catch (err) {
@@ -428,25 +420,21 @@
     }
   });
 
-  // 3. Foto uploaden (met of zonder RDW)
+  // 3. Foto uploaden
   uploadPhotoBtn.addEventListener('click', async () => {
     const name = cleanName(objectNameInput.value);
     if (!name) { setStatus('Voer een naam in.', 'error'); return; }
-
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
     fileInput.capture = 'environment';
     fileInput.style.display = 'none';
     document.body.appendChild(fileInput);
-
     fileInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) { document.body.removeChild(fileInput); return; }
-
       setStatus('📤 Foto aan het uploaden...', 'info');
       uploadPhotoBtn.disabled = true;
-
       try {
         const coords = await getCoordinates();
         let rdwData = null;
@@ -454,9 +442,7 @@
         if (plate) {
           setStatus('🔍 RDW-gegevens ophalen bij foto...', 'info');
           rdwData = await fetchRDW(plate);
-          if (!rdwData) {
-            setStatus('⚠️ Geen RDW-data gevonden, maar foto wordt wel opgeslagen.', 'warning');
-          }
+          if (!rdwData) setStatus('⚠️ Geen RDW-data gevonden, maar foto wordt wel opgeslagen.', 'warning');
         }
         await saveObject({ name, lat: coords.lat, lng: coords.lng, photoFile: file, rdwData });
       } catch (err) {
@@ -467,11 +453,10 @@
         document.body.removeChild(fileInput);
       }
     });
-
     fileInput.click();
   });
 
-  // 4. Handmatig opslaan (via de aparte knop)
+  // 4. Handmatig opslaan
   manualSaveBtn.addEventListener('click', async () => {
     const name = cleanName(objectNameInput.value);
     if (!name) { setStatus('Voer een naam in.', 'error'); return; }
@@ -484,14 +469,14 @@
     await saveObject({ name, lat, lng });
   });
 
-  // --------------------- WEERGAVE ---------------------
+  // --------------------- WEERGAVE (live-update) ---------------------
   function renderItems(snapshot) {
     const data = snapshot.val();
+    cachedData = data || {};  // opslaan voor export
     if (!data) {
       itemListDiv.innerHTML = '<p style="color: #6c757d; text-align: center;">Nog geen objecten opgeslagen.</p>';
       return;
     }
-
     let html = '';
     const keys = Object.keys(data);
     for (const key of keys) {
@@ -503,7 +488,7 @@
       let rdwHtml = '';
       if (item.rdwData) {
         const r = item.rdwData;
-        rdwHtml = `<span class="rdw-data">🚗 ${r.merk} ${r.handelsbenaming || ''} - ${r.eersteKleur} (APK: ${r.vervaldatumAPK || 'onbekend'})</span>`;
+        rdwHtml = `<span class="rdw-data">🚗 Kenteken: ${r.kenteken} | ${r.merk} ${r.handelsbenaming || ''} - ${r.eersteKleur} (APK: ${r.vervaldatumAPK || 'onbekend'})</span>`;
       }
 
       let photoHtml = '';
@@ -545,6 +530,63 @@
     itemListDiv.innerHTML = '<p style="color: red;">Fout bij laden van data.</p>';
   });
 
+  // --------------------- EXPORT NAAR EXCEL (CSV) ---------------------
+  function exportToCSV(data) {
+    if (!data || Object.keys(data).length === 0) {
+      setStatus('⚠️ Geen objecten om te exporteren.', 'warning');
+      return;
+    }
+
+    // Headers
+    const headers = ['Naam', 'Breedtegraad', 'Lengtegraad', 'Kenteken', 'Merk', 'Handelsbenaming', 'Kleur', 'APK-datum'];
+    const rows = [];
+
+    for (const key of Object.keys(data)) {
+      const item = data[key];
+      const rdw = item.rdwData || {};
+      const row = [
+        item.name || 'Onbekend',
+        item.latitude ?? '',
+        item.longitude ?? '',
+        rdw.kenteken || '',
+        rdw.merk || '',
+        rdw.handelsbenaming || '',
+        rdw.eersteKleur || '',
+        rdw.vervaldatumAPK || ''
+      ];
+      rows.push(row);
+    }
+
+    // Bouw CSV
+    let csvContent = headers.join(';') + '\n';
+    for (const row of rows) {
+      // Escape eventuele puntkomma's of aanhalingstekens
+      const escaped = row.map(cell => {
+        if (typeof cell === 'string' && (cell.includes(';') || cell.includes('"') || cell.includes('\n'))) {
+          return `"${cell.replace(/"/g, '""')}"`;
+        }
+        return cell;
+      });
+      csvContent += escaped.join(';') + '\n';
+    }
+
+    // Voeg BOM toe voor UTF-8 (voor Excel)
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `objecten_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setStatus('✅ Export succesvol!', 'success');
+  }
+
+  exportBtn.addEventListener('click', () => {
+    exportToCSV(cachedData);
+  });
+
   // --------------------- ITEM VERWIJDEREN (individueel) ---------------------
   async function deleteItem(key) {
     try {
@@ -566,10 +608,8 @@
   // --------------------- ALLES RESETTEN ---------------------
   resetAllBtn.addEventListener('click', async () => {
     if (!confirm('⚠️ Weet je zeker dat je ALLES wilt verwijderen? Dit kan niet ongedaan worden gemaakt!')) return;
-
     resetAllBtn.disabled = true;
     setStatus('🔄 Bezig met resetten...', 'info');
-
     try {
       const { get } = await import('firebase/database');
       const snapshot = await get(locationsRef);
