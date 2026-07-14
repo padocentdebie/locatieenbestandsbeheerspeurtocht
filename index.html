@@ -537,9 +537,9 @@
     for (const key of Object.keys(data)) {
       const item = data[key];
       const rdw = item.rdwData || {};
-      // Formateer coördinaten met 6 decimalen en een punt
-      const lat = (item.latitude !== undefined && item.latitude !== null) ? item.latitude.toFixed(6) : '';
-      const lng = (item.longitude !== undefined && item.longitude !== null) ? item.longitude.toFixed(6) : '';
+      // Formateer coördinaten met 6 decimalen en vervang punt door komma (voor Nederlandse Excel)
+      const lat = (item.latitude !== undefined && item.latitude !== null) ? item.latitude.toFixed(6).replace('.', ',') : '';
+      const lng = (item.longitude !== undefined && item.longitude !== null) ? item.longitude.toFixed(6).replace('.', ',') : '';
       const row = [
         item.name || 'Onbekend',
         lat,
