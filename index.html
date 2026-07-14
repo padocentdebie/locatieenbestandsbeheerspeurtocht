@@ -28,15 +28,8 @@
       box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       margin-bottom: 20px;
     }
-    .form-group {
-      margin-bottom: 16px;
-    }
-    label {
-      font-weight: 600;
-      display: block;
-      margin-bottom: 6px;
-      color: #2c3e50;
-    }
+    .form-group { margin-bottom: 16px; }
+    label { font-weight: 600; display: block; margin-bottom: 6px; color: #2c3e50; }
     input[type="text"], input[type="number"] {
       width: 100%;
       padding: 12px 16px;
@@ -472,7 +465,7 @@
   // --------------------- WEERGAVE (live-update) ---------------------
   function renderItems(snapshot) {
     const data = snapshot.val();
-    cachedData = data || {};  // opslaan voor export
+    cachedData = data || {};
     if (!data) {
       itemListDiv.innerHTML = '<p style="color: #6c757d; text-align: center;">Nog geen objecten opgeslagen.</p>';
       return;
@@ -544,10 +537,13 @@
     for (const key of Object.keys(data)) {
       const item = data[key];
       const rdw = item.rdwData || {};
+      // Formateer coördinaten met 6 decimalen en een punt
+      const lat = (item.latitude !== undefined && item.latitude !== null) ? item.latitude.toFixed(6) : '';
+      const lng = (item.longitude !== undefined && item.longitude !== null) ? item.longitude.toFixed(6) : '';
       const row = [
         item.name || 'Onbekend',
-        item.latitude ?? '',
-        item.longitude ?? '',
+        lat,
+        lng,
         rdw.kenteken || '',
         rdw.merk || '',
         rdw.handelsbenaming || '',
@@ -560,7 +556,6 @@
     // Bouw CSV
     let csvContent = headers.join(';') + '\n';
     for (const row of rows) {
-      // Escape eventuele puntkomma's of aanhalingstekens
       const escaped = row.map(cell => {
         if (typeof cell === 'string' && (cell.includes(';') || cell.includes('"') || cell.includes('\n'))) {
           return `"${cell.replace(/"/g, '""')}"`;
@@ -570,7 +565,7 @@
       csvContent += escaped.join(';') + '\n';
     }
 
-    // Voeg BOM toe voor UTF-8 (voor Excel)
+    // BOM voor UTF-8 (voor Excel)
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
